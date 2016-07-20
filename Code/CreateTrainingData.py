@@ -19,6 +19,6 @@ if __name__ == '__main__':
     header1 = ",".join(["Gene_{}".format(i+1) for i in range(inp_matrix.shape[0])])
 
     start = timer()
-    np.savetxt(out_file, inp_matrix.transpose(), delimiter=",", fmt="%.2f", header=header1)
+    np.savetxt(out_file, inp_matrix.transpose(), delimiter=",", fmt="%.2f", header=header1, comments='')
     end = timer()
     print("Write done in {}".format(end - start))

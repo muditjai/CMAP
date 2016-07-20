@@ -1,0 +1,34 @@
+Best tree for gene 971
+    model 97 FastTreeRegression{lr=0.1049944 shrk=0.3554732 tdrop=0.05 nl=123 iter=695}
+
+    L1(avg)	L2(avg)	RMS(avg)	LOSS-FN(avg)
+    0.20957531070709229	0.10293391764392072	0.32083316169610759	0.10293391760932331
+
+Test results(Java score)
+                       Local                    Final       Score Diff          GeneMultiplier
+Baseline(truth file) = 1204689.2995268656
+Gene 971 replaced =    1204677.0186800722
+All 1s file =           688402.5500449347
+All 4s file =           688402.5500449347       465012.53   20
+Gene 971 + all 1s =     688441.5288224564           32 ??   60                  3x
+Gene 971,972,973  =     688530.5744217612       465096.49   200                 3.1x
+Gene 971_p10 =          688819.5084337528       465318.96   Not 500 but 300,    2.5x
+Gene 971_p25 =          689487.1723387059       465621.34   Not 2500 but 3000   5X         - linear rate here ie 3x in score with 3x in num gene
+Gene 971_p125 =         693709.3860469651       468631.00   15000               5X
+Gene 971_p625 =         714550.7057353968       483991.76   75K ??              5X          -- possible overfitting happening.
+Gene 971_p3125 =        814000                  558000      225K                3X          -- projection. Delta = gene multiple
+Gene 971_p9375 =       1114000                  783K        270K                1.2X
+Gene 971_p11320 =      1460000                  1053K
+Gene 3 625x 1 1000x=    810791.1985082497       554400.70   70K                 4.6X        -- total 2875 = 4.6*625
+Gene full              1169117.4706969925
+
+
+Learnings
+1. Identify key parts of problem, metrics etc.
+2. Write steps before writing code. Verify small steps before scaling
+3. Understand how scaling will work. Parameters in single module(numTrain) vs number of modules in expt(625X)
+4. Make predictions on possible scores, why it may be different from prediction
+5. Write in python and convert.
+6. Use TLC locally and understand the features.
+7. Think of next steps and do correct calculations/estimations before starting work. Adjust for deadlines.
+8. Don't be afraid to ideate and execute!

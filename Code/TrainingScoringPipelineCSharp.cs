@@ -48,17 +48,17 @@ namespace TrainingScoringPipeline
             [Option("paramSweepNumBatch", Required = true, HelpText = "paramSweepNumBatch")]
             public string paramSweepNumBatch { get; set; }
 
-            [Option("bestModelZipFile", Required = true, HelpText = "bestModelZipFile")]
-            public string bestModelZipFile { get; set; }
+            [Option("bestModelZipFolder", Required = true, HelpText = "bestModelZipFolder")]
+            public string bestModelZipFolder { get; set; }
 
-
+            [Option("numGenesToTrain", Required = true, HelpText = "numGenesToTrain")]
+            public string numGenesToTrain { get; set; }
         }
 
-        public static string ModelTrainingOutputErrFolder = @"SweepOut\";
-        public static string ModelTrainingSummaryFile =  ModelTrainingOutputErrFolder + "summary.txt";
 
-        //TODO - updated max gene count. update binary
-        //Arguments - --trainingFile ..\..\..\training.transposed.txt --localTestFile ..\..\..\Test\landmark.truth.merge.transpose.txt --finalTestFile ..\..\..\FinalTest\testData.transpose.txt --localTestTopRankerFile f1.txt --localTestPredictionFile f2.txt --finalTestPredictionFile f3.txt --geneId 971 --paramSweepString "{/p=lp{name=TREES min=500 max=1500 inc=100} /p=lp{name=LEAVES min=50 max=100 inc=20} /p=lp{name=MIL min=30 max=120 inc=20} /p=fp{name=SHRK min=0.25 max=4 logbase+} /p=fp{name=LR min=0.1 max=0.4 logbase+} /p=dp{name=TDROP v=0} s+ }" --paramSweepBatchSize 7 --paramSweepNumBatch 4
+
+        //TODO
+        //Arguments - --trainingFile ..\..\..\training.transposed.txt --localTestFile ..\..\..\Test\landmark.truth.merge.transpose.txt --finalTestFile ..\..\..\FinalTest\testData.transpose.txt --localTestTopRankerFile f1.txt --localTestPredictionFile f2.txt --finalTestPredictionFile f3.txt --geneId 971 --paramSweepString "{/p=lp{name=TREES min=500 max=1500 inc=100} /p=lp{name=LEAVES min=50 max=100 inc=20} /p=lp{name=MIL min=30 max=120 inc=20} /p=fp{name=SHRK min=0.25 max=4 logbase+} /p=fp{name=LR min=0.1 max=0.4 logbase+} /p=dp{name=TDROP v=0} s+ }" --paramSweepBatchSize 7 --paramSweepNumBatch 4 --bestModelZipFolder bestModelDir --numGenesToTrain 2
 
         // Test at 1, 10x, 100x stages while creating single modules.
 
@@ -74,81 +74,106 @@ namespace TrainingScoringPipeline
                 return;
             }
 
-            int geneId = (int)new DataTable().Compute(cmdLine.geneId, null);
-            cmdLine.geneId = geneId.ToString();
+            int initGeneId = (int)new DataTable().Compute(cmdLine.geneId, null);
+            cmdLine.geneId = initGeneId.ToString();
 
             //Total 12320 genes are present
             int highestGeneId = 12320;
-            if (geneId > highestGeneId)
+
+            int genesToTrain = Int32.Parse(cmdLine.numGenesToTrain);
+
+            for (int i = 0; i < genesToTrain; i++)
             {
-                ReturnWithGeneExceededMsg(geneId, highestGeneId, cmdLine);
+                int curGeneId = initGeneId + i;
+                Console.WriteLine("\n\n**Training Gene_" + curGeneId + "\n");
+
+                if (curGeneId > highestGeneId)
+                {
+                    Console.WriteLine("\n\n**Request for GeneId > 12320. Request - Gene_" + curGeneId + "**\n\n");
+                    continue;
+                }
+
+                string ModelTrainingOutputErrFolder = "SweepFolder_" + curGeneId + @"\";
+                string ModelTrainingSummaryFile = ModelTrainingOutputErrFolder + "summary.txt";
+
+                Directory.CreateDirectory("Folder_" + curGeneId);
+                // Construct param sweep command
+                string paramSweepCommand = "sweep sbs=" + cmdLine.paramSweepBatchSize + " snb=" +
+                                           cmdLine.paramSweepNumBatch + " " +
+                                           "sweeper=ldrand" + cmdLine.paramSweepString + " " +
+                                           "runner=Local{ " +
+                                           "pattern={TrainTest data=" + cmdLine.trainingFile + " " +
+                                           "testfile=" + cmdLine.localTestFile + " " +
+                                           "loader=TextLoader{sep=, col=Features:R4:0-969 col=Label:R4:" + (curGeneId - 1) +
+                                           " header=+}" + " " +
+                                           "tr=FastTreeRegression{lr=$LR$ shrk=$SHRK$ tdrop=$TDROP$ nl=$LEAVES$ iter=$TREES$ mil=$MIL$}" +
+                                           " " +
+                                           "sf=Folder_" + curGeneId + @"\summary_GENE" + curGeneId +
+                                           ".out_TR$TREES$_LV$LEAVES$.txt " +
+                                           "dout=Folder_" + curGeneId + @"\inst_GENE" + curGeneId +
+                                           ".pred_TR$TREES$_LV$LEAVES$.txt " +
+                                           "out=Folder_" + curGeneId + @"\model_GENE" + curGeneId +
+                                           "_TR$TREES$_LV$LEAVES$.zip }" + " " +
+                                           @"outfolder=" + ModelTrainingOutputErrFolder + " }";
+
+                Console.WriteLine("\n\n**Constructecd sweep command\n" + paramSweepCommand + "\n\n");
+                PrintDirInfo("Directory before paramsweep");
+
+                DateTime start = DateTime.Now;
+
+                // Execute sweep processor
+                CreateMamlProcess(paramSweepCommand);
+
+                DateTime end = DateTime.Now;
+                Console.WriteLine("\n\n**Sweep Gene_" + curGeneId + " completed in: " + (end - start).Minutes + "min");
+
+                PrintDirInfo("Directory after paramsweep and before resultsProcessor");
+                Console.WriteLine("\n\n**Completed sweep command\n\n.");
+
+                Console.WriteLine("**Start ResultProcessor**\n\n");
+
+                // Execute ResultProcessor
+                CreateResultProcessor(ModelTrainingOutputErrFolder, ModelTrainingSummaryFile);
+
+                PrintDirInfo("Directory after resultprocessor");
+                Console.WriteLine("\n\n**Completed ResultProcessor\n\n");
+
+                DumpFullFileOnConsole(ModelTrainingSummaryFile);
+
+                // Parse summary for top k ranker name and score.
+                // Output top 5 best rankers. Add gene name column to data.
+                // Ouput best ranker's score for local test data. Add gene name in header of single column
+                string bestModelFilePath;
+                ParseAndOutputTopKRankers(curGeneId, ModelTrainingSummaryFile, 5, cmdLine.localTestTopRankerFile,
+                    cmdLine.localTestPredictionFile, out bestModelFilePath);
+
+                string bestModelFileName = bestModelFilePath.Split('\\').Last(x => true);
+                // Copy best model zip to output
+                if (!Directory.Exists(cmdLine.bestModelZipFolder))
+                {
+                    Directory.CreateDirectory(cmdLine.bestModelZipFolder);
+                }
+                File.Copy(bestModelFilePath, cmdLine.bestModelZipFolder + @"\" + bestModelFileName);
+
+                // Prepare scoring command
+                string tempFinalPredictionFile = "Folder_" + curGeneId + @"\" + "finalprediction.temp.txt";
+                string scoreRunCommand = "score " +
+                                         "loader=TextLoader{sep=, col=Features:R4:0-969 header=+}" + " " +
+                                         "data=" + cmdLine.finalTestFile + " " +
+                                         "in=" + bestModelFilePath + " " +
+                                         "dout=" + tempFinalPredictionFile + " ";
+
+                Console.WriteLine("\n\n**Constructecd score command\n" + scoreRunCommand + "\n\n");
+                PrintDirInfo("**Directory before score step**");
+
+                // Execute score process for final test file
+                CreateMamlProcess(scoreRunCommand);
+
+                PrintDirInfo("**Directory after score step**");
+
+                // Parse the gene score and output.
+                ParseAndOutputFinalTestScore(curGeneId, tempFinalPredictionFile, cmdLine.finalTestPredictionFile);
             }
-
-            // Construct param sweep command
-            string paramSweepCommand = "sweep sbs=" + cmdLine.paramSweepBatchSize + " snb=" + cmdLine.paramSweepNumBatch + " " +
-                "sweeper=ldrand" + cmdLine.paramSweepString + " " +
-                "runner=Local{ " +
-                "pattern={TrainTest data=" + cmdLine.trainingFile + " " +
-                         "testfile=" + cmdLine.localTestFile + " " +
-                         "loader=TextLoader{sep=, col=Features:R4:0-969 col=Label:R4:" + (geneId-1) + " header=+}" + " " +
-                          "tr=FastTreeRegression{lr=$LR$ shrk=$SHRK$ tdrop=$TDROP$ nl=$LEAVES$ iter=$TREES$ mil=$MIL$}" + " " +
-                          "sf=summary_GENE" + cmdLine.geneId + ".out_TR$TREES$_LV$LEAVES$.txt " +
-                          "dout=inst_GENE"+ cmdLine.geneId + ".pred_TR$TREES$_LV$LEAVES$.txt " +
-                          "out=model_GENE" + cmdLine.geneId + "_TR$TREES$_LV$LEAVES$.zip }" + " " +
-                @"outfolder=" + ModelTrainingOutputErrFolder + " }";
-
-            Console.WriteLine("\n\n**Constructecd sweep command\n" + paramSweepCommand + "\n\n");
-            PrintDirInfo("Directory before paramsweep");
-
-            DateTime start = DateTime.Now;
-
-            // Execute sweep processor
-            CreateMamlProcess(paramSweepCommand);
-
-            DateTime end = DateTime.Now;
-            Console.WriteLine("\n\n**Sweep completed in: " + (end - start).Minutes + "min");
-
-            PrintDirInfo("Directory after paramsweep");
-            Console.WriteLine("\n\n**Completed sweep command\n\n.");
-
-            Console.WriteLine("**Start ResultProcessor**\n\n");
-            PrintDirInfo("Directory before resultprocessor");
-
-            // Execute ResultProcessor
-            CreateResultProcessor();
-
-            PrintDirInfo("Directory after resultprocessor");
-            Console.WriteLine("\n\n**Completed ResultProcessor\n\n");
-
-            DumpFullFileOnConsole(ModelTrainingSummaryFile);
-
-            // Parse summary for top k ranker name and score.
-            // Output top 5 best rankers. Add gene name column to data.
-            // Ouput best ranker's score for local test data. Add gene name in header of single column
-            string bestModelFileName;
-            ParseAndOutputTopKRankers(geneId, ModelTrainingSummaryFile, 5, cmdLine.localTestTopRankerFile, cmdLine.localTestPredictionFile, out bestModelFileName);
-
-            // Copy best model zip to output
-            File.Copy(bestModelFileName, cmdLine.bestModelZipFile);
-
-            // Prepare scoring command
-            string tempFinalPredictionFile = cmdLine.finalTestPredictionFile + ".temp.txt";
-            string scoreRunCommand = "score " +
-                                     "loader=TextLoader{sep=, col=Features:R4:0-969 header=+}" + " " +
-                                     "data=" + cmdLine.finalTestFile + " " +
-                                     "in=" + bestModelFileName + " " +
-                                     "dout=" + tempFinalPredictionFile + " ";
-
-            Console.WriteLine("\n\n**Constructecd score command\n" + scoreRunCommand + "\n\n");
-            PrintDirInfo("**Directory before score step**");
-
-            // Execute score process for final test file
-            CreateMamlProcess(scoreRunCommand);
-
-            PrintDirInfo("**Directory after score step**");
-
-            // Parse the gene score and output.
-            ParseAndOutputFinalTestScore(geneId, tempFinalPredictionFile, cmdLine.finalTestPredictionFile);
 
             // End execution
             Console.WriteLine("Finished Execution");
@@ -161,7 +186,7 @@ namespace TrainingScoringPipeline
             WriteMsgToFile(msg, cmdLine.finalTestPredictionFile);
             WriteMsgToFile(msg, cmdLine.localTestPredictionFile);
             WriteMsgToFile(msg, cmdLine.localTestTopRankerFile);
-            WriteMsgToFile(msg, cmdLine.bestModelZipFile);
+            WriteMsgToFile(msg, cmdLine.bestModelZipFolder);
         }
 
         private static void WriteMsgToFile(string msg, string fileName)
@@ -212,9 +237,23 @@ namespace TrainingScoringPipeline
 
             using (StreamReader sr = new StreamReader(tempFinalPredictionFile))
             {
+                StringReader predFileReader = null;
+                if (File.Exists(finalPredictionFile))
+                {
+                    predFileReader = new StringReader(File.ReadAllText(finalPredictionFile));
+                }
+
                 using (StreamWriter sw = new StreamWriter(finalPredictionFile))
                 {
-                    sw.WriteLine("Gene_" + geneId);
+                    string existingStr = "";
+                    if (predFileReader != null)
+                    {
+                        existingStr = predFileReader.ReadLine();
+                    }
+
+                    string writeStr = existingStr + "," + "Gene_" + geneId;
+                    sw.WriteLine(writeStr.Trim(new char[] { ',' }));
+
                     while (!sr.EndOfStream)
                     {
                         string line = sr.ReadLine();
@@ -227,7 +266,14 @@ namespace TrainingScoringPipeline
                         double score;
                         if (double.TryParse(line, out score))
                         {
-                            sw.WriteLine(score);
+                            existingStr = "";
+                            if (predFileReader != null)
+                            {
+                                existingStr = predFileReader.ReadLine();
+                            }
+
+                            writeStr = existingStr + "," + score.ToString();
+                            sw.WriteLine(writeStr.Trim(new char[] { ',' }));
                         }
                     }
                 }
@@ -245,7 +291,7 @@ namespace TrainingScoringPipeline
             }
         }
 
-        private static void ParseAndOutputTopKRankers(int geneId, string ModelTrainingSummaryFile, int topK, string topRankerOutputFile, string localTestBestPredictionFile, out string bestModelFileName)
+        private static void ParseAndOutputTopKRankers(int geneId, string ModelTrainingSummaryFile, int topK, string topRankerOutputFile, string localTestBestPredictionFile, out string bestModelFilePath)
         {
             using (StreamReader sr = new StreamReader(ModelTrainingSummaryFile))
             {
@@ -275,15 +321,15 @@ namespace TrainingScoringPipeline
                 l2ErrorList.Sort((x1, x2) => x1.Item1.CompareTo(x2.Item1));
 
                 // Print best model
-                Console.WriteLine("\n\n**Top model\n{0}", l2ErrorList[0].Item2);
+                Console.WriteLine("\n\n**Top model Gene_{0}\n{1}", geneId, l2ErrorList[0].Item2);
 
                 // lowest error command is here. Get best model file name
                 string command = l2ErrorList[0].Item2.Split('\t')[commandIdx];
                 string[] splitcommand = command.Split('=');
-                bestModelFileName = splitcommand[splitcommand.Length - 1].Trim();
+                bestModelFilePath = splitcommand[splitcommand.Length - 1].Trim();
 
                 // write topk models
-                using (StreamWriter sw1 = new StreamWriter(topRankerOutputFile))
+                using (StreamWriter sw1 = new StreamWriter(topRankerOutputFile, append:true))
                 {
                     sw1.WriteLine("GeneId\t" + summaryheader);
                     for (int i = 0; i < topK && i < l2ErrorList.Count; i++)
@@ -301,9 +347,22 @@ namespace TrainingScoringPipeline
                     // skip header
                     sr1.ReadLine();
 
+                    StringReader existingPredFileReader = null;
+                    if (File.Exists(localTestBestPredictionFile))
+                    {
+                        existingPredFileReader = new StringReader(File.ReadAllText(localTestBestPredictionFile));
+                    }
+
                     using (StreamWriter sw2 = new StreamWriter(localTestBestPredictionFile))
                     {
-                        sw2.WriteLine("Gene_" + geneId);
+                        String existingString = "";
+                        if (existingPredFileReader != null)
+                        {
+                            existingString = existingPredFileReader.ReadLine();
+                        }
+
+                        string writeStr = existingString + "," + "Gene_" + geneId;
+                        sw2.WriteLine(writeStr.Trim(new char[]{','}));
 
                         while (!sr1.EndOfStream)
                         {
@@ -313,14 +372,21 @@ namespace TrainingScoringPipeline
                                 continue;
                             }
 
-                            sw2.WriteLine(line.Split('\t')[2]);
+                            existingString = "";
+                            if (existingPredFileReader != null)
+                            {
+                                existingString = existingPredFileReader.ReadLine();
+                            }
+
+                            writeStr = existingString + "," + line.Split('\t')[2];
+                            sw2.WriteLine(writeStr.Trim(new char[]{','}));
                         }
                     }
                 }
             }
         }
 
-        private static void CreateResultProcessor()
+        private static void CreateResultProcessor(string ModelTrainingOutputErrFolder, string ModelTrainingSummaryFile)
         {
             Process p = new Process();
 
